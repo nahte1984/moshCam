@@ -1,0 +1,1031 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>刪幀相機</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Chiron+GoRound+TC:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  box-sizing: border-box;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  --bg: #D5D7DA;
+  --panel: #E4E6E9;
+  --line: #B3B7BD;
+  --ink: #1D2024;
+  --ink-dim: #5A5F66;
+  --mosh: #C8137C;
+  --mosh-2: #0E9C8C;
+  --rec: #D93A3F;
+  --finder: #000;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #23262B;
+    --panel: #2E3238;
+    --line: #474C54;
+    --ink: #ECEAE4;
+    --ink-dim: #A3A6AB;
+    --mosh: #F2359D;
+    --mosh-2: #2FD6C3;
+    --rec: #FF5A5F;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #23262B;
+  --panel: #2E3238;
+  --line: #474C54;
+  --ink: #ECEAE4;
+  --ink-dim: #A3A6AB;
+  --mosh: #F2359D;
+  --mosh-2: #2FD6C3;
+  --rec: #FF5A5F;
+}
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { height: 100%; scroll-padding-top: env(safe-area-inset-top, 0px); }
+body {
+  margin: 0;
+  min-height: 100%;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: "Chiron GoRound TC", "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-tap-highlight-color: transparent;
+}
+button, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--mosh); outline-offset: 2px; }
+
+.app {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 12px 12px 20px;
+}
+@media (min-width: 860px) {
+  .app { grid-template-columns: minmax(0, 1fr) 320px; align-items: start; padding: 20px; gap: 20px; }
+}
+
+/* ---------- viewfinder ---------- */
+.finder { display: flex; justify-content: center; min-width: 0; }
+.screen {
+  --ar: 0.75;
+  position: relative;
+  aspect-ratio: var(--ar);
+  width: min(100%, calc(60svh * var(--ar)));
+  background: var(--finder);
+  border-radius: 12px;
+  overflow: hidden;
+}
+@media (min-width: 860px) {
+  .screen { width: min(100%, calc((100svh - 40px) * var(--ar))); }
+}
+.screen canvas {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  display: block;
+}
+#view { image-rendering: pixelated; }
+#vec { pointer-events: none; }
+.chip {
+  position: absolute; top: 10px; left: 10px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(0,0,0,.55);
+  color: #fff;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+.chip[data-state="mosh"] { background: var(--mosh); }
+.chip[data-state="bloom"] { background: var(--mosh-2); color: #06201d; }
+.recbadge {
+  position: absolute; top: 10px; right: 10px;
+  display: flex; align-items: center; gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(0,0,0,.55);
+  color: #fff;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+.recbadge::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--rec); }
+.empty {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; justify-content: flex-end;
+  gap: 12px;
+  padding: 20px;
+  color: #ECEAE4;
+  background:
+    repeating-linear-gradient(0deg, rgba(255,255,255,.035) 0 1px, transparent 1px 16px),
+    repeating-linear-gradient(90deg, rgba(255,255,255,.035) 0 1px, transparent 1px 16px),
+    #15171A;
+}
+.empty h2 { margin: 0; font-size: 22px; line-height: 1.25; font-weight: 800; }
+.empty p { margin: 0; color: #B9BBBF; max-width: 34em; }
+.empty .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.empty .err { color: #FFB3C9; }
+.btn {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 999px;
+  padding: 8px 16px;
+  font-weight: 600;
+}
+.empty .btn { border-color: #474C54; background: #2E3238; color: #ECEAE4; }
+.empty .btn.primary { background: #ECEAE4; color: #15171A; border-color: #ECEAE4; }
+
+/* ---------- control deck ---------- */
+.deck { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.brand { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.brand h1 { margin: 0; font-size: 18px; font-weight: 800; letter-spacing: .02em; }
+.hint { margin: 0; font-size: 12px; color: var(--ink-dim); display: none; }
+@media (hover: hover) and (pointer: fine) { .hint { display: block; } }
+
+.row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.seg {
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+}
+.seg button {
+  border: 0; background: transparent;
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-weight: 600;
+  color: var(--ink-dim);
+  white-space: nowrap;
+}
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+.iconbtn {
+  width: 38px; height: 38px;
+  display: inline-grid; place-items: center;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  padding: 0;
+}
+.iconbtn svg { width: 18px; height: 18px; }
+.seed {
+  margin-left: auto;
+  display: inline-flex; align-items: center; gap: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 999px;
+  padding: 3px 12px 3px 3px;
+  font-weight: 600;
+  font-size: 14px;
+  white-space: nowrap;
+}
+.seed canvas, .seed .ph {
+  width: 30px; height: 30px; border-radius: 50%;
+  display: block;
+  background: repeating-conic-gradient(var(--line) 0 25%, transparent 0 50%) 0 0 / 10px 10px;
+}
+.seedclear {
+  border: 0; background: transparent; color: var(--ink-dim);
+  font-size: 13px; padding: 4px 6px; text-decoration: underline; text-underline-offset: 3px;
+}
+
+.main {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  padding: 6px 0 2px;
+}
+.round {
+  justify-self: center;
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  border: 0; background: transparent; padding: 0;
+  font-size: 13px; color: var(--ink-dim); font-weight: 600;
+  user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+  touch-action: manipulation;
+}
+.round .disc {
+  width: 58px; height: 58px; border-radius: 50%;
+  display: grid; place-items: center;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink);
+}
+.round .disc svg { width: 24px; height: 24px; }
+.round:disabled { opacity: .4; cursor: default; }
+.rec .dot { width: 20px; height: 20px; border-radius: 50%; background: var(--rec); transition: border-radius .15s, transform .15s; }
+.rec[aria-pressed="true"] .dot { border-radius: 4px; transform: scale(.85); }
+.bloom[aria-pressed="true"] .disc { background: var(--mosh-2); color: #06201d; border-color: var(--mosh-2); }
+
+/* the one loud thing: a macroblock with chroma split */
+.shutter {
+  position: relative;
+  width: 104px; height: 104px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--ink);
+  color: var(--bg);
+  font-weight: 800;
+  font-size: 18px;
+  line-height: 1.15;
+  box-shadow: -5px 0 0 var(--mosh-2), 5px 0 0 var(--mosh);
+  user-select: none; -webkit-user-select: none;
+  touch-action: manipulation;
+  transition: transform .12s, box-shadow .12s;
+}
+.shutter small { display: block; font-size: 11px; font-weight: 600; opacity: .7; margin-top: 2px; }
+.shutter:active { transform: translateY(1px); }
+.shutter[aria-pressed="true"] {
+  background: var(--mosh);
+  color: #fff;
+  box-shadow: -7px 4px 0 var(--mosh-2), 6px -3px 0 var(--ink);
+}
+.shutter:disabled { opacity: .45; cursor: default; }
+
+.minor { justify-content: space-between; }
+.textbtn {
+  border: 0; background: transparent; padding: 6px 2px;
+  font-weight: 600; color: var(--ink-dim);
+}
+.textbtn:disabled { opacity: .4; cursor: default; }
+.textbtn svg { width: 12px; height: 12px; vertical-align: -1px; transition: transform .15s; }
+.textbtn[aria-expanded="true"] svg { transform: rotate(180deg); }
+
+.settings {
+  display: flex; flex-direction: column; gap: 16px;
+  padding: 16px;
+  border-radius: 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+}
+.settings[hidden] { display: none; }
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field .top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.field label, .field .name { font-weight: 600; }
+.field output { font-variant-numeric: tabular-nums; color: var(--ink-dim); font-size: 13px; }
+.field .help { margin: 0; font-size: 12.5px; color: var(--ink-dim); }
+.field input[type="range"] { width: 100%; accent-color: var(--mosh); margin: 2px 0; }
+.field .seg { align-self: flex-start; background: var(--bg); }
+.check { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.check input { width: 18px; height: 18px; accent-color: var(--mosh); }
+
+.toast {
+  position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+  transform: translate(-50%, 20px);
+  opacity: 0;
+  padding: 8px 16px; border-radius: 999px;
+  background: var(--ink); color: var(--bg);
+  font-size: 14px; font-weight: 600;
+  pointer-events: none;
+  transition: opacity .2s, transform .2s;
+  max-width: calc(100% - 32px);
+  text-align: center;
+}
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+.srcvideo { position: fixed; left: 0; top: 0; width: 2px; height: 2px; opacity: 0; pointer-events: none; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; }
+}
+</style>
+</head>
+<body>
+<main class="app">
+  <section class="finder" aria-label="觀景窗">
+    <div class="screen" id="screen">
+      <canvas id="view" width="640" height="480" aria-label="即時畫面"></canvas>
+      <canvas id="vec" width="640" height="480" aria-hidden="true"></canvas>
+      <div class="chip" id="status" data-state="idle" hidden>即時</div>
+      <div class="recbadge" id="recBadge" hidden>0:00</div>
+      <div class="empty" id="empty">
+        <h2>先開一個畫面來源</h2>
+        <p>開鏡頭後按「刪 I 幀」，畫面會停在那一格；接著在鏡頭前動，舊畫面就會被你的動作拖著走。</p>
+        <div class="actions">
+          <button class="btn primary" id="openCam" type="button">開啟鏡頭</button>
+          <button class="btn" id="openFile" type="button">用影片檔</button>
+        </div>
+        <p class="err" id="err" hidden></p>
+      </div>
+    </div>
+  </section>
+
+  <section class="deck" aria-label="控制">
+    <div class="brand">
+      <h1>刪幀相機</h1>
+      <p class="hint">空白鍵刪／補 I 幀，按住 B 拉絲，R 錄影</p>
+    </div>
+
+    <div class="row">
+      <div class="seg" role="group" aria-label="畫面來源">
+        <button type="button" id="srcCam" aria-pressed="false">鏡頭</button>
+        <button type="button" id="srcFile" aria-pressed="false">影片檔</button>
+      </div>
+      <button class="iconbtn" id="flip" type="button" aria-label="切換前後鏡頭" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h13l-3-3"/><path d="M20 16H7l3 3"/></svg>
+      </button>
+      <button class="seed" id="seedBtn" type="button" aria-describedby="seedHelp">
+        <span class="ph" id="seedPh"></span>
+        <canvas id="seedThumb" width="60" height="60" hidden></canvas>
+        <span id="seedLabel">起始圖</span>
+      </button>
+    </div>
+    <p class="visually-hidden" id="seedHelp">選一張照片，刪 I 幀時會從這張照片開始融化</p>
+
+    <div class="main">
+      <button class="round rec" id="recBtn" type="button" aria-pressed="false" disabled hidden>
+        <span class="disc"><span class="dot"></span></span>
+        <span id="recLabel">錄影</span>
+      </button>
+      <button class="shutter" id="shutter" type="button" aria-pressed="false" disabled>
+        <span id="shutterLabel">刪 I 幀</span>
+        <small id="shutterSub">凍住這一格</small>
+      </button>
+      <button class="round bloom" id="bloomBtn" type="button" aria-pressed="false" disabled>
+        <span class="disc">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M3 7h10"/><path d="M3 12h18"/><path d="M3 17h13"/></svg>
+        </span>
+        <span>按住拉絲</span>
+      </button>
+    </div>
+
+    <div class="row minor">
+      <button class="textbtn" id="snapBtn" type="button" disabled hidden>截圖</button>
+      <span></span>
+      <button class="textbtn" id="toggleSettings" type="button" aria-expanded="false" aria-controls="settings">
+        調整
+        <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4.5 6 8l3.5-3.5"/></svg>
+      </button>
+    </div>
+
+    <div class="settings" id="settings" hidden>
+      <div class="field">
+        <div class="top"><span class="name" id="blkName">方塊大小</span><output id="blkOut">16 px</output></div>
+        <div class="seg" role="group" aria-labelledby="blkName" id="blkSeg">
+          <button type="button" data-v="8" aria-pressed="false">8</button>
+          <button type="button" data-v="16" aria-pressed="true">16</button>
+          <button type="button" data-v="32" aria-pressed="false">32</button>
+        </div>
+        <p class="help">越大格子感越重，拖曳也越粗。</p>
+      </div>
+      <div class="field">
+        <div class="top"><label for="seep">新畫面滲入</label><output id="seepOut" for="seep">35</output></div>
+        <input type="range" id="seep" min="0" max="100" value="35">
+        <p class="help">越高，舊畫面越快被新畫面一塊塊蓋掉；0 會一直黏著舊畫面。</p>
+      </div>
+      <div class="field">
+        <div class="top"><label for="gain">殘差強度</label><output id="gainOut" for="gain">100%</output></div>
+        <input type="range" id="gain" min="0" max="100" value="100">
+        <p class="help">新畫面的輪廓疊上來的程度；0 是純拖曳，不疊輪廓。</p>
+      </div>
+      <div class="field">
+        <div class="top"><label for="quant">量化</label><output id="quantOut" for="quant">8</output></div>
+        <input type="range" id="quant" min="0" max="40" value="8">
+        <p class="help">越高，細小的變化被丟掉，色塊越髒。</p>
+      </div>
+      <div class="field">
+        <div class="top"><span class="name" id="resName">解析度（短邊）</span><output id="resOut">320 px</output></div>
+        <div class="seg" role="group" aria-labelledby="resName" id="resSeg">
+          <button type="button" data-v="256" aria-pressed="false">256</button>
+          <button type="button" data-v="320" aria-pressed="true">320</button>
+          <button type="button" data-v="480" aria-pressed="false">480</button>
+        </div>
+        <p class="help">越低越像舊網路影片，也越省電。</p>
+      </div>
+      <label class="check"><input type="checkbox" id="showVec"> 顯示動態向量</label>
+    </div>
+  </section>
+</main>
+
+<video class="srcvideo" id="src" playsinline muted loop></video>
+<input type="file" id="fileInput" accept="video/*" hidden>
+<input type="file" id="seedInput" accept="image/*" hidden>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(() => {
+  const $ = (s) => document.querySelector(s);
+  const video = $('#src');
+  const view = $('#view'), vctx = view.getContext('2d');
+  const vec = $('#vec'), vecctx = vec.getContext('2d');
+  const work = document.createElement('canvas');
+  const wctx = work.getContext('2d', { willReadFrequently: true });
+
+  const st = {
+    source: null,          // 'camera' | 'file'
+    facing: 'user',
+    mirror: true,
+    stream: null,
+    fileUrl: null,
+    ready: false,
+    moshing: false,
+    bloom: false,
+    moshStart: 0,
+    haveVectors: false,
+    B: 16,
+    res: 320,
+    seep: 35,
+    gain: 100,
+    quant: 8,
+    showVec: false,
+    seed: null,
+    recorder: null,
+    recStart: 0,
+  };
+
+  // ---------- buffers ----------
+  let W = 0, H = 0, SCALE = 2;
+  let prev, M, Mn, imgA, imgB, curY, prevY, resid, mvx, mvy, bsad, isIntra;
+
+  function setupDims(sw, sh) {
+    const r = st.res;
+    const ar = sw / sh;
+    if (sw >= sh) { H = r; W = Math.max(32, Math.round((r * ar) / 32) * 32); }
+    else { W = r; H = Math.max(32, Math.round((r / ar) / 32) * 32); }
+    work.width = W; work.height = H;
+    SCALE = W * H > 200000 ? 1 : 2;
+    view.width = W * SCALE; view.height = H * SCALE;
+    vec.width = view.width; vec.height = view.height;
+    vctx.imageSmoothingEnabled = false;
+    $('#screen').style.setProperty('--ar', (W / H).toFixed(4));
+    const n = W * H * 4;
+    prev = new Uint8ClampedArray(n);
+    M = new Uint8ClampedArray(n);
+    Mn = new Uint8ClampedArray(n);
+    imgA = new ImageData(M, W, H);
+    imgB = new ImageData(Mn, W, H);
+    curY = new Uint8Array((W >> 1) * (H >> 1));
+    prevY = new Uint8Array((W >> 1) * (H >> 1));
+    resid = new Int16Array(W * H * 3);
+    allocBlocks();
+    st.haveVectors = false;
+    if (st.moshing) stopMosh();
+    prevFilled = false;
+  }
+  function allocBlocks() {
+    const nb = (W / st.B) * (H / st.B);
+    mvx = new Int16Array(nb); mvy = new Int16Array(nb);
+    bsad = new Float32Array(nb); isIntra = new Uint8Array(nb);
+    st.haveVectors = false;
+  }
+  let prevFilled = false;
+
+  function drawCover(ctx, el, sw, sh, mirror) {
+    const s = Math.max(W / sw, H / sh);
+    const dw = sw * s, dh = sh * s;
+    const dx = (W - dw) / 2, dy = (H - dh) / 2;
+    ctx.save();
+    if (mirror) { ctx.translate(W, 0); ctx.scale(-1, 1); }
+    ctx.drawImage(el, dx, dy, dw, dh);
+    ctx.restore();
+  }
+
+  function lumaHalf(rgba, out) {
+    const hw = W >> 1, hh = H >> 1, row = W * 4;
+    let o = 0;
+    for (let y = 0; y < hh; y++) {
+      let i = (y * 2) * row;
+      for (let x = 0; x < hw; x++, i += 8) {
+        const j = i + row;
+        const s =
+          rgba[i] * 77 + rgba[i + 1] * 150 + rgba[i + 2] * 29 +
+          rgba[i + 4] * 77 + rgba[i + 5] * 150 + rgba[i + 6] * 29 +
+          rgba[j] * 77 + rgba[j + 1] * 150 + rgba[j + 2] * 29 +
+          rgba[j + 4] * 77 + rgba[j + 5] * 150 + rgba[j + 6] * 29;
+        out[o++] = s >> 10;
+      }
+    }
+  }
+
+  // block-matching motion search on half-res luma
+  function estimate() {
+    const hw = W >> 1, hh = H >> 1;
+    const b = st.B >> 1;
+    const r = st.B === 8 ? 4 : st.B === 16 ? 6 : 8;
+    const step = b > 8 ? 2 : 1;
+    const n = (b / step) * (b / step);
+    const gw = W / st.B, gh = H / st.B;
+    const cy = curY, py = prevY;
+
+    function sad(x0, y0, dx, dy, limit) {
+      let s = 0;
+      for (let y = 0; y < b; y += step) {
+        const ci = (y0 + y) * hw + x0;
+        const pi = (y0 + y + dy) * hw + x0 + dx;
+        for (let x = 0; x < b; x += step) {
+          const d = cy[ci + x] - py[pi + x];
+          s += d < 0 ? -d : d;
+        }
+        if (s >= limit) return s;
+      }
+      return s;
+    }
+
+    let k = 0;
+    for (let gy = 0; gy < gh; gy++) {
+      const y0 = gy * b;
+      for (let gx = 0; gx < gw; gx++, k++) {
+        const x0 = gx * b;
+        const zero = sad(x0, y0, 0, 0, Infinity);
+        let best = zero, bx = 0, by = 0;
+        if (zero / n > 1.5) {
+          for (let dy = -r; dy <= r; dy++) {
+            const yy = y0 + dy;
+            if (yy < 0 || yy + b > hh) continue;
+            for (let dx = -r; dx <= r; dx++) {
+              if (!dx && !dy) continue;
+              const xx = x0 + dx;
+              if (xx < 0 || xx + b > hw) continue;
+              const s = sad(x0, y0, dx, dy, best);
+              if (s < best) { best = s; bx = dx; by = dy; }
+            }
+          }
+          // prefer standing still unless moving is clearly better
+          if (zero <= best + 1.5 * n) { best = zero; bx = 0; by = 0; }
+        }
+        mvx[k] = bx * 2; mvy[k] = by * 2; bsad[k] = best / n;
+      }
+    }
+    st.haveVectors = true;
+  }
+
+  // decoder-style reconstruction: shifted old picture + residual, intra refresh for bad matches
+  function compose(cur, bloom) {
+    const B = st.B, gw = W / B, gh = H / B;
+    const k = st.gain / 100;
+    const q = st.quant;
+    const T = 60 - st.seep * 0.54;
+    const bk = k * 0.45;
+    const src = M, dst = Mn;
+    let idx = 0;
+    for (let gy = 0; gy < gh; gy++) {
+      for (let gx = 0; gx < gw; gx++, idx++) {
+        const dx = mvx[idx], dy = mvy[idx];
+        const intra = !bloom && bsad[idx] > T;
+        isIntra[idx] = intra ? 1 : 0;
+        for (let y = 0; y < B; y++) {
+          const row = gy * B + y;
+          let sy = row + dy; if (sy < 0) sy = 0; else if (sy >= H) sy = H - 1;
+          for (let x = 0; x < B; x++) {
+            const col = gx * B + x;
+            let sx = col + dx; if (sx < 0) sx = 0; else if (sx >= W) sx = W - 1;
+            const p = row * W + col;
+            const i = p * 4, s = (sy * W + sx) * 4, ri = p * 3;
+            if (intra) {
+              dst[i] = cur[i]; dst[i + 1] = cur[i + 1]; dst[i + 2] = cur[i + 2];
+              resid[ri] = 0; resid[ri + 1] = 0; resid[ri + 2] = 0;
+            } else if (bloom) {
+              dst[i] = src[s] + bk * resid[ri];
+              dst[i + 1] = src[s + 1] + bk * resid[ri + 1];
+              dst[i + 2] = src[s + 2] + bk * resid[ri + 2];
+            } else {
+              for (let c = 0; c < 3; c++) {
+                let d = cur[i + c] - prev[s + c];
+                if (q) d = (d > -q && d < q) ? 0 : Math.round(d / q) * q;
+                resid[ri + c] = d;
+                dst[i + c] = src[s + c] + k * d;
+              }
+            }
+            dst[i + 3] = 255;
+          }
+        }
+      }
+    }
+    M = dst; Mn = src;
+    const t = imgA; imgA = imgB; imgB = t;
+  }
+
+  function drawVectors() {
+    vecctx.clearRect(0, 0, vec.width, vec.height);
+    if (!st.showVec || !st.moshing || !st.haveVectors) return;
+    const B = st.B, gw = W / B, gh = H / B, sc = view.width / W;
+    const css = getComputedStyle(document.documentElement);
+    const c1 = css.getPropertyValue('--mosh-2').trim() || '#2FD6C3';
+    const c2 = css.getPropertyValue('--mosh').trim() || '#F2359D';
+    vecctx.lineWidth = Math.max(1.5, sc * 1.25);
+    vecctx.lineCap = 'round';
+    vecctx.strokeStyle = c1;
+    vecctx.beginPath();
+    let idx = 0;
+    for (let gy = 0; gy < gh; gy++) for (let gx = 0; gx < gw; gx++, idx++) {
+      const dx = mvx[idx], dy = mvy[idx];
+      if (!dx && !dy) continue;
+      const cx = (gx * B + B / 2) * sc, cy = (gy * B + B / 2) * sc;
+      vecctx.moveTo(cx + dx * sc, cy + dy * sc);
+      vecctx.lineTo(cx, cy);
+    }
+    vecctx.stroke();
+    vecctx.strokeStyle = c2;
+    vecctx.beginPath();
+    idx = 0;
+    for (let gy = 0; gy < gh; gy++) for (let gx = 0; gx < gw; gx++, idx++) {
+      if (!isIntra[idx]) continue;
+      vecctx.rect(gx * B * sc + 1, gy * B * sc + 1, B * sc - 2, B * sc - 2);
+    }
+    vecctx.stroke();
+  }
+
+  // ---------- frame loop ----------
+  function tick() {
+    if (!st.ready || !video.videoWidth) return;
+    drawCover(wctx, video, video.videoWidth, video.videoHeight, st.mirror);
+    const cur = wctx.getImageData(0, 0, W, H).data;
+    lumaHalf(cur, curY);
+    if (!st.moshing || !prevFilled) {
+      M.set(cur);
+    } else if (st.bloom && st.haveVectors) {
+      compose(cur, true);
+    } else {
+      estimate();
+      compose(cur, false);
+    }
+    prev.set(cur); prevY.set(curY); prevFilled = true;
+    wctx.putImageData(imgA, 0, 0);
+    vctx.drawImage(work, 0, 0, view.width, view.height);
+    drawVectors();
+    updateStatus();
+  }
+
+  let loopOn = false, lastT = 0;
+  const hasRVFC = 'requestVideoFrameCallback' in HTMLVideoElement.prototype;
+  function startLoop() {
+    if (loopOn) return;
+    loopOn = true;
+    if (hasRVFC) {
+      const f = () => { try { tick(); } catch (e) { console.error(e); } video.requestVideoFrameCallback(f); };
+      video.requestVideoFrameCallback(f);
+    } else {
+      const f = (t) => {
+        if (t - lastT >= 30) { lastT = t; try { tick(); } catch (e) { console.error(e); } }
+        requestAnimationFrame(f);
+      };
+      requestAnimationFrame(f);
+    }
+  }
+
+  // ---------- status ----------
+  let lastStatus = '';
+  function updateStatus() {
+    const chip = $('#status');
+    let text, state;
+    if (!st.moshing) { text = '即時'; state = 'idle'; }
+    else if (st.bloom) { text = '拉絲中'; state = 'bloom'; }
+    else { text = 'Mosh 中 ' + ((performance.now() - st.moshStart) / 1000).toFixed(1) + ' 秒'; state = 'mosh'; }
+    if (text !== lastStatus) { chip.textContent = text; chip.dataset.state = state; lastStatus = text; }
+    if (st.recorder) {
+      const s = Math.floor((performance.now() - st.recStart) / 1000);
+      $('#recBadge').textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+    }
+  }
+
+  // ---------- mosh control ----------
+  function startMosh() {
+    if (!st.ready) return;
+    if (st.seed) {
+      drawCover(wctx, st.seed, st.seed.width, st.seed.height, false);
+      M.set(wctx.getImageData(0, 0, W, H).data);
+    }
+    st.moshing = true;
+    st.haveVectors = false;
+    st.moshStart = performance.now();
+    syncMoshUI();
+  }
+  function stopMosh() {
+    st.moshing = false;
+    setBloom(false);
+    vecctx.clearRect(0, 0, vec.width, vec.height);
+    syncMoshUI();
+  }
+  function toggleMosh() { st.moshing ? stopMosh() : startMosh(); }
+  function syncMoshUI() {
+    const b = $('#shutter');
+    b.setAttribute('aria-pressed', String(st.moshing));
+    $('#shutterLabel').textContent = st.moshing ? '補 I 幀' : '刪 I 幀';
+    $('#shutterSub').textContent = st.moshing ? '回到即時' : (st.seed ? '從起始圖開始' : '凍住這一格');
+    updateStatus();
+  }
+  function setBloom(on) {
+    if (on && !st.moshing) startMosh();
+    st.bloom = on && st.moshing;
+    $('#bloomBtn').setAttribute('aria-pressed', String(st.bloom));
+  }
+
+  // ---------- sources ----------
+  function stopSources() {
+    if (st.stream) { st.stream.getTracks().forEach((t) => t.stop()); st.stream = null; }
+    if (st.fileUrl) { URL.revokeObjectURL(st.fileUrl); st.fileUrl = null; }
+    video.srcObject = null;
+    video.removeAttribute('src');
+    video.load();
+  }
+
+  async function waitForDims() {
+    if (video.videoWidth) return;
+    await new Promise((res, rej) => {
+      const to = setTimeout(() => rej(new Error('timeout')), 8000);
+      video.addEventListener('loadedmetadata', () => { clearTimeout(to); res(); }, { once: true });
+    });
+  }
+
+  function onSourceReady() {
+    setupDims(video.videoWidth, video.videoHeight);
+    st.ready = true;
+    $('#empty').hidden = true;
+    $('#status').hidden = false;
+    $('#shutter').disabled = false;
+    $('#bloomBtn').disabled = false;
+    $('#recBtn').disabled = false;
+    $('#snapBtn').disabled = false;
+    $('#srcCam').setAttribute('aria-pressed', String(st.source === 'camera'));
+    $('#srcFile').setAttribute('aria-pressed', String(st.source === 'file'));
+    startLoop();
+  }
+
+  function showError(msg) {
+    const e = $('#err');
+    e.textContent = msg; e.hidden = false;
+    $('#empty').hidden = false;
+    $('#status').hidden = true;
+    st.ready = false;
+    $('#shutter').disabled = true;
+    $('#bloomBtn').disabled = true;
+  }
+
+  async function startCamera(facing) {
+    if (st.recorder) stopRec();
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      showError('這個瀏覽器沒有提供鏡頭功能（需要 HTTPS）。可以改用影片檔。');
+      return;
+    }
+    stopSources();
+    if (facing) st.facing = facing;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: st.facing }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false,
+      });
+      st.stream = stream;
+      const settings = stream.getVideoTracks()[0].getSettings();
+      st.mirror = settings.facingMode !== 'environment';
+      video.srcObject = stream;
+      video.muted = true;
+      await video.play();
+      await waitForDims();
+      st.source = 'camera';
+      $('#err').hidden = true;
+      onSourceReady();
+      checkFlip();
+    } catch (err) {
+      const name = err && err.name ? err.name : 'Error';
+      let msg = '鏡頭打不開（' + name + '）。';
+      if (name === 'NotAllowedError' || name === 'SecurityError') {
+        msg += '鏡頭權限被擋下了；如果是在 Claude 裡預覽，檢視器可能沒有開放鏡頭，可以先改用影片檔。';
+      } else if (name === 'NotFoundError' || name === 'OverconstrainedError') {
+        msg += '找不到可用的鏡頭，可以改用影片檔。';
+      } else if (name === 'NotReadableError') {
+        msg += '鏡頭可能正被其他 App 使用，關掉後再試。';
+      } else {
+        msg += '可以改用影片檔。';
+      }
+      showError(msg);
+    }
+  }
+
+  async function checkFlip() {
+    try {
+      const devs = await navigator.mediaDevices.enumerateDevices();
+      const cams = devs.filter((d) => d.kind === 'videoinput');
+      $('#flip').hidden = !(st.source === 'camera' && cams.length > 1);
+    } catch { $('#flip').hidden = true; }
+  }
+
+  async function startFile(file) {
+    if (!file) return;
+    if (st.recorder) stopRec();
+    stopSources();
+    $('#flip').hidden = true;
+    st.mirror = false;
+    try {
+      st.fileUrl = URL.createObjectURL(file);
+      video.src = st.fileUrl;
+      video.loop = true; video.muted = true;
+      try {
+        await video.play();
+      } catch (e) {
+        // some hosts refuse blob: media; fall back to a data URL
+        URL.revokeObjectURL(st.fileUrl); st.fileUrl = null;
+        const dataUrl = await new Promise((res, rej) => {
+          const fr = new FileReader();
+          fr.onload = () => res(fr.result); fr.onerror = rej;
+          fr.readAsDataURL(file);
+        });
+        video.src = dataUrl;
+        await video.play();
+      }
+      await waitForDims();
+      st.source = 'file';
+      $('#err').hidden = true;
+      onSourceReady();
+    } catch (err) {
+      showError('這個影片打不開，換一個格式試試（MP4 或 WebM）。');
+    }
+  }
+
+  // ---------- seed photo ----------
+  async function setSeed(file) {
+    if (!file) return;
+    try {
+      const bmp = await createImageBitmap(file);
+      if (st.seed && st.seed.close) st.seed.close();
+      st.seed = bmp;
+      const t = $('#seedThumb'), tc = t.getContext('2d');
+      const s = Math.max(60 / bmp.width, 60 / bmp.height);
+      tc.clearRect(0, 0, 60, 60);
+      tc.drawImage(bmp, (60 - bmp.width * s) / 2, (60 - bmp.height * s) / 2, bmp.width * s, bmp.height * s);
+      t.hidden = false; $('#seedPh').hidden = true;
+      $('#seedLabel').textContent = '清除';
+      $('#seedBtn').setAttribute('aria-label', '清除起始圖');
+      syncMoshUI();
+      toast('刪 I 幀時會從這張照片開始');
+    } catch {
+      toast('這張圖讀不到，換一張試試');
+    }
+  }
+  function clearSeed() {
+    if (st.seed && st.seed.close) st.seed.close();
+    st.seed = null;
+    $('#seedThumb').hidden = true; $('#seedPh').hidden = false;
+    $('#seedLabel').textContent = '起始圖';
+    $('#seedBtn').removeAttribute('aria-label');
+    syncMoshUI();
+  }
+
+  // ---------- saving ----------
+  const inClaude = typeof window.claude === 'object' && window.claude && typeof window.claude.use === 'function';
+  let downloadsNS = null;
+  function showSaveUI(on) {
+    $('#recBtn').hidden = !on;
+    $('#snapBtn').hidden = !on;
+  }
+  if (inClaude) {
+    showSaveUI(false);
+    window.claude.use('downloads').then((d) => { downloadsNS = d; showSaveUI(!!d); }).catch(() => showSaveUI(false));
+  } else {
+    showSaveUI(true);
+  }
+
+  async function saveFile(blob, name) {
+    if (!inClaude) {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob); a.download = name;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 8000);
+      toast('已下載 ' + name);
+      return;
+    }
+    if (!downloadsNS) { toast('這個檢視器無法存檔'); return; }
+    try {
+      const r = await downloadsNS.save({ filename: name, data: blob });
+      if (r && r.status === 'saved') toast('已存檔');
+    } catch (e) {
+      const code = e && e.code;
+      if (code === 'declined') toast('已取消存檔');
+      else if (code === 'rate_limited') toast('存檔視窗已經開著，稍後再試');
+      else if (code === 'too_large') toast('檔案太大，錄短一點再試');
+      else { toast('這個檢視器無法存檔'); showSaveUI(false); }
+    }
+  }
+  function stamp() {
+    const d = new Date(), p = (n) => String(n).padStart(2, '0');
+    return d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '-' + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds());
+  }
+
+  function pickMime() {
+    if (!window.MediaRecorder) return null;
+    const c = ['video/mp4;codecs=avc1.42E01E', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
+    return c.find((t) => MediaRecorder.isTypeSupported(t)) || '';
+  }
+  function startRec() {
+    const mime = pickMime();
+    if (mime === null || !view.captureStream) { toast('這個瀏覽器不能錄影，可以用截圖'); return; }
+    try {
+      const stream = view.captureStream(30);
+      const rec = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: 8e6 } : undefined);
+      const chunks = [];
+      rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+      rec.onstop = () => {
+        const type = rec.mimeType || mime || 'video/webm';
+        const blob = new Blob(chunks, { type });
+        if (!blob.size) { toast('沒有錄到畫面'); return; }
+        saveFile(blob, 'mosh-' + stamp() + (type.includes('mp4') ? '.mp4' : '.webm'));
+      };
+      rec.start(250);
+      st.recorder = rec; st.recStart = performance.now();
+      $('#recBtn').setAttribute('aria-pressed', 'true');
+      $('#recLabel').textContent = '停止';
+      $('#recBadge').hidden = false;
+    } catch (e) {
+      toast('錄影啟動失敗');
+    }
+  }
+  function stopRec() {
+    if (!st.recorder) return;
+    const r = st.recorder; st.recorder = null;
+    try { r.stop(); } catch {}
+    $('#recBtn').setAttribute('aria-pressed', 'false');
+    $('#recLabel').textContent = '錄影';
+    $('#recBadge').hidden = true;
+  }
+  function toggleRec() { if (!st.ready || $('#recBtn').hidden) return; st.recorder ? stopRec() : startRec(); }
+  function snap() {
+    if (!st.ready) return;
+    view.toBlob((b) => { if (b) saveFile(b, 'mosh-' + stamp() + '.png'); }, 'image/png');
+  }
+
+  // ---------- toast ----------
+  let toastT;
+  function toast(msg) {
+    const t = $('#toast');
+    t.textContent = msg; t.classList.add('show');
+    clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 2200);
+  }
+
+  // ---------- wiring ----------
+  $('#openCam').addEventListener('click', () => startCamera());
+  $('#openFile').addEventListener('click', () => $('#fileInput').click());
+  $('#srcCam').addEventListener('click', () => startCamera());
+  $('#srcFile').addEventListener('click', () => $('#fileInput').click());
+  $('#fileInput').addEventListener('change', (e) => { startFile(e.target.files[0]); e.target.value = ''; });
+  $('#flip').addEventListener('click', () => startCamera(st.facing === 'user' ? 'environment' : 'user'));
+  $('#seedBtn').addEventListener('click', () => { st.seed ? clearSeed() : $('#seedInput').click(); });
+  $('#seedInput').addEventListener('change', (e) => { setSeed(e.target.files[0]); e.target.value = ''; });
+
+  $('#shutter').addEventListener('click', toggleMosh);
+  $('#recBtn').addEventListener('click', toggleRec);
+  $('#snapBtn').addEventListener('click', snap);
+
+  const bloomBtn = $('#bloomBtn');
+  bloomBtn.addEventListener('pointerdown', (e) => {
+    if (bloomBtn.disabled) return;
+    try { bloomBtn.setPointerCapture(e.pointerId); } catch {}
+    setBloom(true);
+  });
+  ['pointerup', 'pointercancel', 'lostpointercapture'].forEach((ev) => bloomBtn.addEventListener(ev, () => setBloom(false)));
+  bloomBtn.addEventListener('keydown', (e) => { if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) { e.preventDefault(); setBloom(true); } });
+  bloomBtn.addEventListener('keyup', (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); setBloom(false); } });
+  bloomBtn.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  const settingsBtn = $('#toggleSettings');
+  function setSettings(open) {
+    $('#settings').hidden = !open;
+    settingsBtn.setAttribute('aria-expanded', String(open));
+  }
+  settingsBtn.addEventListener('click', () => setSettings($('#settings').hidden));
+  if (window.matchMedia('(min-width: 860px)').matches) setSettings(true);
+
+  function bindSeg(id, onPick) {
+    const seg = $(id);
+    seg.addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-v]');
+      if (!b) return;
+      seg.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+      onPick(Number(b.dataset.v));
+    });
+  }
+  bindSeg('#blkSeg', (v) => { st.B = v; $('#blkOut').textContent = v + ' px'; if (W) allocBlocks(); });
+  bindSeg('#resSeg', (v) => {
+    st.res = v; $('#resOut').textContent = v + ' px';
+    if (st.ready && video.videoWidth) setupDims(video.videoWidth, video.videoHeight);
+  });
+  function bindRange(id, key, fmt) {
+    const el = $(id), out = $(id + 'Out');
+    const upd = () => { st[key] = Number(el.value); out.textContent = fmt(st[key]); };
+    el.addEventListener('input', upd); upd();
+  }
+  bindRange('#seep', 'seep', (v) => String(v));
+  bindRange('#gain', 'gain', (v) => v + '%');
+  bindRange('#quant', 'quant', (v) => String(v));
+  $('#showVec').addEventListener('change', (e) => { st.showVec = e.target.checked; if (!st.showVec) vecctx.clearRect(0, 0, vec.width, vec.height); });
+
+  document.addEventListener('keydown', (e) => {
+    const t = e.target;
+    const typing = t && (t.tagName === 'INPUT' || t.tagName === 'BUTTON' || t.isContentEditable);
+    if (e.key === ' ' && !typing) { e.preventDefault(); if (!e.repeat) toggleMosh(); }
+    else if ((e.key === 'b' || e.key === 'B') && !e.repeat && t.tagName !== 'INPUT') { if (st.ready) setBloom(true); }
+    else if ((e.key === 'r' || e.key === 'R') && !e.repeat && t.tagName !== 'INPUT') { toggleRec(); }
+  });
+  document.addEventListener('keyup', (e) => { if (e.key === 'b' || e.key === 'B') setBloom(false); });
+  window.addEventListener('blur', () => setBloom(false));
+  document.addEventListener('visibilitychange', () => { if (document.hidden) { setBloom(false); if (st.recorder) stopRec(); } });
+})();
+</script>
+</body>
+</html>
