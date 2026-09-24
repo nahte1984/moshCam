@@ -60,7 +60,7 @@ body.in-cam { background: var(--track); }
 .fade {
   position: absolute; left: 0; right: 0; bottom: 0;
   height: calc(140px + env(safe-area-inset-bottom, 0px));
-  background: linear-gradient(to top, var(--track) calc(13.46px + env(safe-area-inset-bottom, 0px)), rgba(49,49,49,0));
+  background: linear-gradient(to top, rgba(49,49,49,1) calc(13.46px + env(safe-area-inset-bottom, 0px)), rgba(49,49,49,0) 100%);
   pointer-events: none;
 }
 .bar {
@@ -70,8 +70,10 @@ body.in-cam { background: var(--track); }
   width: min(100%, 450px);
   height: 134px;           /* control centers sit 67px above the bottom edge */
   transform: translateX(-50%);
+  pointer-events: none;
 }
 .bar > button {
+  pointer-events: auto;
   position: absolute;
   top: 50%;
   transform: translate(-50%, -50%);
@@ -134,6 +136,7 @@ body.in-cam { background: var(--track); }
 
 .msg {
   position: absolute; left: 50%; top: 42%;
+  z-index: 3;
   transform: translate(-50%, -50%);
   width: min(86%, 340px);
   text-align: center;
@@ -141,6 +144,10 @@ body.in-cam { background: var(--track); }
   color: var(--green);
 }
 .msg p { margin: 0 0 16px; }
+.msg .hint { margin: -10px 0 16px; font-size: 13px; line-height: 1.5; color: var(--knob-off); }
+@media (orientation: landscape) and (max-height: 500px) {
+  .msg { top: calc((100% - 134px - env(safe-area-inset-bottom, 0px)) / 2); }
+}
 .msg button {
   border: 0;
   border-radius: 63px;
@@ -183,7 +190,8 @@ body.in-cam { background: var(--track); }
   <div class="fade"></div>
   <div class="flash" id="flash"></div>
   <div class="msg" id="msg" hidden>
-    <p id="msgText"></p>
+    <p id="msgText">Please allow camera access</p>
+    <p class="hint" id="msgHint" hidden>Camera is blocked for this site. Turn it on in your browser's site settings, then tap mosh again.</p>
     <button type="button" id="retry">mosh again</button>
   </div>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
@@ -227,7 +235,6 @@ body.in-cam { background: var(--track); }
     stream: null,
     ready: false,
     moshing: false,
-    starting: false,
     gray: false,
   };
 
@@ -414,28 +421,41 @@ body.in-cam { background: var(--track); }
     $('#flip').disabled = !on;
     $('#tone').disabled = !on;
   }
-  function showMsg(text) {
-    $('#msgText').textContent = text;
+  function showMsg(blocked) {
+    $('#msgHint').hidden = !blocked;
     $('#msg').hidden = false;
   }
 
+  // follow the browser's camera permission so the page recovers on its own once it is allowed
+  let perm = null;
+  async function watchPermission() {
+    if (perm || !navigator.permissions || !navigator.permissions.query) return;
+    try {
+      perm = await navigator.permissions.query({ name: 'camera' });
+      perm.addEventListener('change', () => {
+        if (perm.state !== 'denied' && !$('#msg').hidden) startCamera();
+      });
+    } catch { perm = null; }
+  }
+
+  let attempt = 0;
   async function startCamera(facing) {
-    if (st.starting) return;
-    st.starting = true;
+    const my = ++attempt;                 // every tap starts a fresh try; older tries are ignored
     $('#msg').hidden = true;
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      showMsg('Please allow camera access');
-      st.starting = false;
+      showMsg(false);
       return;
     }
     const wanted = facing || st.facing;
     setControls(false);
     stopStream();
+    const t0 = performance.now();
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: { ideal: wanted }, width: { ideal: 1280 }, height: { ideal: 720 } },
         audio: false,
       });
+      if (my !== attempt) { stream.getTracks().forEach((t) => t.stop()); return; }
       st.stream = stream;
       const s = stream.getVideoTracks()[0].getSettings();
       st.facing = s.facingMode || wanted;
@@ -445,18 +465,24 @@ body.in-cam { background: var(--track); }
       if (!video.videoWidth) {
         await new Promise((res) => video.addEventListener('loadedmetadata', res, { once: true }));
       }
+      if (my !== attempt) return;
       setupDims(video.videoWidth, video.videoHeight);
       st.ready = true;
       setControls(true);
       startLoop();
       checkCameras();
+      watchPermission();
     } catch (err) {
+      if (my !== attempt) return;
       st.ready = false;
       setMosh(false);
       console.warn('camera error:', err && err.name);
-      showMsg('Please allow camera access');
-    } finally {
-      st.starting = false;
+      // an instant refusal means the browser answered without asking: the site is blocked
+      let blocked = !!err && err.name === 'NotAllowedError' && performance.now() - t0 < 350;
+      await watchPermission();
+      if (perm && perm.state === 'denied') blocked = true;
+      if (my !== attempt) return;
+      showMsg(blocked);
     }
   }
 
@@ -568,6 +594,10 @@ body.in-cam { background: var(--track); }
     $('#tone').setAttribute('aria-pressed', String(st.gray));
     $('#toneColor').hidden = st.gray;
     $('#toneBk').hidden = !st.gray;
+  });
+
+  video.addEventListener('resize', () => {
+    if (st.ready && video.videoWidth) setupDims(video.videoWidth, video.videoHeight);
   });
 
   // ---------- no pinch / double-tap zoom ----------
