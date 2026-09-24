@@ -2,7 +2,7 @@
 <html lang="zh-Hant">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#343434">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -17,7 +17,8 @@
 }
 *, *::before, *::after { box-sizing: border-box; }
 [hidden] { display: none !important; }
-html, body { height: 100%; }
+html, body { height: 100%; touch-action: none; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+button, .title { touch-action: manipulation; }
 body {
   margin: 0;
   background: var(--bg);
@@ -47,7 +48,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .title img { display: block; }
 
 /* ---------- 02: camera ---------- */
-.cam { position: fixed; inset: 0; background: #000; }
+.cam { position: fixed; inset: 0; background: var(--track); }
+body.in-cam { background: var(--track); }
 .cam canvas {
   position: absolute; inset: 0;
   width: 100%; height: 100%;
@@ -58,7 +60,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .fade {
   position: absolute; left: 0; right: 0; bottom: 0;
   height: calc(140px + env(safe-area-inset-bottom, 0px));
-  background: linear-gradient(to top, #000 9.615%, rgba(0,0,0,0));
+  background: linear-gradient(to top, var(--track) calc(13.46px + env(safe-area-inset-bottom, 0px)), rgba(49,49,49,0));
   pointer-events: none;
 }
 .bar {
@@ -537,6 +539,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
     const title = $('#title');
     if (title.classList.contains('leaving')) return;
     title.classList.add('leaving');
+    document.body.classList.add('in-cam');
+    const tc = document.querySelector('meta[name="theme-color"]');
+    if (tc) tc.setAttribute('content', '#313131');
     $('#cam').hidden = false;
     if (window.matchMedia('(pointer: coarse)').matches && document.documentElement.requestFullscreen) {
       document.documentElement.requestFullscreen({ navigationUI: 'hide' }).catch(() => {});
@@ -564,6 +569,20 @@ button { font: inherit; color: inherit; cursor: pointer; }
     $('#toneColor').hidden = st.gray;
     $('#toneBk').hidden = !st.gray;
   });
+
+  // ---------- no pinch / double-tap zoom ----------
+  ['gesturestart', 'gesturechange', 'gestureend'].forEach((ev) =>
+    document.addEventListener(ev, (e) => e.preventDefault(), { passive: false }));
+  document.addEventListener('touchstart', (e) => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
+  document.addEventListener('touchmove', (e) => { if (e.touches.length > 1 || e.scale && e.scale !== 1) e.preventDefault(); }, { passive: false });
+  let lastTouchEnd = 0;
+  document.addEventListener('touchend', (e) => {
+    const now = Date.now();
+    // quick second tap outside the buttons would be a double-tap zoom; buttons keep rapid taps
+    if (now - lastTouchEnd < 320 && !(e.target.closest && e.target.closest('button'))) e.preventDefault();
+    lastTouchEnd = now;
+  }, { passive: false });
+  document.addEventListener('dblclick', (e) => e.preventDefault(), { passive: false });
 
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) { stopStream(); st.ready = false; setControls(false); }
