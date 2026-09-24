@@ -112,6 +112,15 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .flip img { position: absolute; left: 8px; top: 10px; display: block; transition: transform .3s ease; }
 .flip.turning img { transform: rotate(180deg); }
 
+.tone {
+  left: 82.78%;
+  width: 43px; height: 43px;
+  border-radius: 50%;
+  background: var(--track) !important;
+  box-shadow: inset 0 0 0 2px var(--stroke);
+}
+.tone img { position: absolute; left: 8px; top: 8px; display: block; object-fit: cover; }
+
 .flash {
   position: absolute; inset: 0;
   background: #fff;
@@ -173,7 +182,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   <div class="flash" id="flash"></div>
   <div class="msg" id="msg" hidden>
     <p id="msgText"></p>
-    <button type="button" id="retry">再試一次</button>
+    <button type="button" id="retry">mosh again</button>
   </div>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <div class="bar">
@@ -185,6 +194,10 @@ button { font: inherit; color: inherit; cursor: pointer; }
     </button>
     <button class="flip" id="flip" type="button" aria-label="切換前後鏡頭" disabled>
       <img src="reverse.svg" width="27" height="23" alt="">
+    </button>
+    <button class="tone" id="tone" type="button" aria-label="黑白" aria-pressed="false" disabled>
+      <img id="toneColor" src="color.png" width="27" height="27" alt="">
+      <img id="toneBk" src="bk.png" width="27" height="27" alt="" hidden>
     </button>
   </div>
 </main>
@@ -213,12 +226,13 @@ button { font: inherit; color: inherit; cursor: pointer; }
     ready: false,
     moshing: false,
     starting: false,
+    gray: false,
   };
 
   // ---------- buffers ----------
   let W = 0, H = 0;
   const SCALE = 2;
-  let prev, M, Mn, imgA, imgB, curY, prevY, mvx, mvy, bsad;
+  let prev, M, Mn, imgA, imgB, curY, prevY, mvx, mvy, bsad, G, imgG;
   let prevFilled = false;
 
   function setupDims(sw, sh) {
@@ -237,6 +251,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
     Mn = new Uint8ClampedArray(n);
     imgA = new ImageData(M, W, H);
     imgB = new ImageData(Mn, W, H);
+    G = new Uint8ClampedArray(n);
+    imgG = new ImageData(G, W, H);
     curY = new Uint8Array((W >> 1) * (H >> 1));
     prevY = new Uint8Array((W >> 1) * (H >> 1));
     const nb = (W / BLOCK) * (H / BLOCK);
@@ -353,7 +369,16 @@ button { font: inherit; color: inherit; cursor: pointer; }
     if (!st.moshing || !prevFilled) M.set(cur);
     else { estimate(); compose(cur); }
     prev.set(cur); prevY.set(curY); prevFilled = true;
-    wctx.putImageData(imgA, 0, 0);
+    if (st.gray) {
+      const src = imgA.data;
+      for (let i = 0; i < src.length; i += 4) {
+        const y = (src[i] * 77 + src[i + 1] * 150 + src[i + 2] * 29) >> 8;
+        G[i] = y; G[i + 1] = y; G[i + 2] = y; G[i + 3] = 255;
+      }
+      wctx.putImageData(imgG, 0, 0);
+    } else {
+      wctx.putImageData(imgA, 0, 0);
+    }
     vctx.drawImage(work, 0, 0, view.width, view.height);
   }
 
@@ -385,6 +410,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
     $('#moshSwitch').disabled = !on;
     $('#shutter').disabled = !on;
     $('#flip').disabled = !on;
+    $('#tone').disabled = !on;
   }
   function showMsg(text) {
     $('#msgText').textContent = text;
@@ -396,7 +422,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
     st.starting = true;
     $('#msg').hidden = true;
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      showMsg('這個瀏覽器不能開鏡頭。手機需要用 https 網址打開這個頁面。');
+      showMsg('Please allow camera access');
       st.starting = false;
       return;
     }
@@ -425,12 +451,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
     } catch (err) {
       st.ready = false;
       setMosh(false);
-      const name = (err && err.name) || 'Error';
-      let text = '鏡頭打不開（' + name + '）。';
-      if (name === 'NotAllowedError' || name === 'SecurityError') text += '請在瀏覽器設定裡允許這個頁面使用鏡頭。';
-      else if (name === 'NotFoundError' || name === 'OverconstrainedError') text += '找不到可以用的鏡頭。';
-      else if (name === 'NotReadableError') text += '鏡頭可能正被其他 App 使用，關掉後再試。';
-      showMsg(text);
+      console.warn('camera error:', err && err.name);
+      showMsg('Please allow camera access');
     } finally {
       st.starting = false;
     }
@@ -536,6 +558,12 @@ button { font: inherit; color: inherit; cursor: pointer; }
     startCamera(st.facing === 'user' ? 'environment' : 'user');
   });
   $('#retry').addEventListener('click', () => startCamera());
+  $('#tone').addEventListener('click', () => {
+    st.gray = !st.gray;
+    $('#tone').setAttribute('aria-pressed', String(st.gray));
+    $('#toneColor').hidden = st.gray;
+    $('#toneBk').hidden = !st.gray;
+  });
 
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) { stopStream(); st.ready = false; setControls(false); }
